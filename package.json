@@ -1,0 +1,16 @@
+{
+  "name": "fincalc",
+  "version": "0.1.0",
+  "description": "Finance formulas as a CLI and importable library: NPV, IRR, XIRR, payback, PI, annuities, bonds, duration, convexity, WACC, DDM.",
+  "type": "module",
+  "bin": {
+    "fincalc": "bin/fincalc.js"
+  },
+  "scripts": {
+    "start": "node bin/fincalc.js",
+    "test": "node -e \"console.log('✓ fincalc smoke test')\""
+  },
+  "keywords": ["finance", "npv", "irr", "xirr", "bond", "wacc", "cli", "library"],
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}
