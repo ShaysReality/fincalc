@@ -38,3 +38,22 @@ fincalc wacc --we 0.6 --wd 0.4 --re 0.12 --rd 0.07 --tax 0.21
 
 # DDM (Gordon)
 fincalc ddm-gordon --d1 2 --g 0.04 --r 0.09
+
+## Roadmap
+
+Planned upgrades for upcoming releases:
+
+- **CLI UX**
+  - `--round <n>`: round outputs to *n* decimals
+  - `--from <path>`: load inputs from JSON/CSV files
+  - `--format <json|number>`: control output style
+- **Date Handling**
+  - Add day-count conventions for XNPV/XIRR (ACT/365, ACT/360, 30E/360)
+- **Data Input**
+  - File-based inputs (`.json` / `.csv`) for easier workflows
+- **Output Improvements**
+  - Prettier formatting and alignment
+- **Testing**
+  - Automated unit tests using Node’s built-in `node:test`
+- **Releases**
+  - Semantic versioning, changelog, and npm publishing
