@@ -6,11 +6,9 @@ export function npv(rate, cashflows) {
 }
 
 export function irr(cashflows, guess = 0.1) {
-  // Newton-Raphson with bisection fallback
   const f = r => cashflows.reduce((acc, cf, t) => acc + cf / Math.pow(1 + r, t), 0);
   const df = r => cashflows.reduce((acc, cf, t) => acc + (t ? -t * cf / Math.pow(1 + r, t + 1) : 0), 0);
 
-  // Try Newton
   let r = guess;
   for (let i = 0; i < 50; i++) {
     const y = f(r), dy = df(r);
@@ -21,7 +19,6 @@ export function irr(cashflows, guess = 0.1) {
     r = r1;
   }
 
-  // Bisection in [-0.9, 10]
   let lo = -0.9, hi = 10.0;
   let flo = f(lo), fhi = f(hi);
   if (flo * fhi > 0) throw new Error('IRR not bracketed; check cashflows');
@@ -34,30 +31,30 @@ export function irr(cashflows, guess = 0.1) {
   return (lo + hi) / 2;
 }
 
-function daysBetween(d0, d1) {
-  const t0 = new Date(d0).getTime();
-  const t1 = new Date(d1).getTime();
-  return (t1 - t0) / (1000 * 60 * 60 * 24);
+// --- v0.2.0: day-count basis support for XNPV/XIRR ---
+function yearFrac(d0, d1, basis = 'ACT/365') {
+  const D0 = new Date(d0), D1 = new Date(d1);
+  if (Number.isNaN(D0) || Number.isNaN(D1)) throw new Error('Invalid date');
+  if (basis === 'ACT/365') return (D1 - D0) / (1000 * 60 * 60 * 24 * 365);
+  if (basis === 'ACT/360') return (D1 - D0) / (1000 * 60 * 60 * 24 * 360);
+  if (basis === '30E/360') {
+    const y0 = D0.getUTCFullYear(), m0 = D0.getUTCMonth() + 1, d0e = Math.min(D0.getUTCDate(), 30);
+    const y1 = D1.getUTCFullYear(), m1 = D1.getUTCMonth() + 1, d1e = Math.min(D1.getUTCDate(), 30);
+    return ((360 * (y1 - y0)) + 30 * (m1 - m0) + (d1e - d0e)) / 360;
+  }
+  throw new Error('Unsupported basis');
 }
 
-export function xnpv(rate, cashflows, dates) {
-  // cashflows[i], dates[i] ISO strings
+export function xnpv(rate, cashflows, dates, { basis = 'ACT/365' } = {}) {
   if (cashflows.length !== dates.length) throw new Error('cashflows and dates length mismatch');
-  const t0 = new Date(dates[0]);
-  return cashflows.reduce((acc, cf, i) => {
-    const di = new Date(dates[i]);
-    const yearFrac = (di - t0) / (1000 * 60 * 60 * 24 * 365.0);
-    return acc + cf / Math.pow(1 + rate, yearFrac);
-  }, 0);
+  const t0 = dates[0];
+  return cashflows.reduce((acc, cf, i) =>
+    acc + cf / Math.pow(1 + rate, yearFrac(t0, dates[i], basis)), 0);
 }
 
-export function xirr(cashflows, dates, guess = 0.1) {
-  const f = r => xnpv(r, cashflows, dates);
-  // Numeric derivative
-  const df = r => {
-    const h = 1e-6;
-    return (f(r + h) - f(r - h)) / (2 * h);
-  };
+export function xirr(cashflows, dates, guess = 0.1, { basis = 'ACT/365' } = {}) {
+  const f = r => xnpv(r, cashflows, dates, { basis });
+  const df = r => { const h = 1e-6; return (f(r + h) - f(r - h)) / (2 * h); };
 
   let r = guess;
   for (let i = 0; i < 50; i++) {
@@ -69,29 +66,26 @@ export function xirr(cashflows, dates, guess = 0.1) {
     r = r1;
   }
 
-  // Bisection fallback
-  let lo = -0.9, hi = 10.0;
-  let flo = f(lo), fhi = f(hi);
+  let lo = -0.9, hi = 10.0, flo = f(lo), fhi = f(hi);
   if (flo * fhi > 0) throw new Error('XIRR not bracketed; check cashflows/dates');
   for (let i = 0; i < 200; i++) {
-    const mid = (lo + hi) / 2;
-    const fm = f(mid);
+    const mid = (lo + hi) / 2, fm = f(mid);
     if (Math.abs(fm) < 1e-8) return mid;
     if (flo * fm <= 0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
   }
   return (lo + hi) / 2;
 }
 
+// --- other formulas ---
 export function paybackPeriod(cashflows) {
   let cum = 0;
   for (let t = 0; t < cashflows.length; t++) {
     const prev = cum;
     cum += cashflows[t];
     if (cum >= 0) {
-      const needed = -prev;
-      const within = cashflows[t];
+      const needed = -prev, within = cashflows[t];
       const frac = within !== 0 ? needed / within : 0;
-      return t - 1 + frac; // fractional periods
+      return t - 1 + frac;
     }
   }
   return Infinity;
@@ -107,21 +101,17 @@ export function annuityPV(rate, n, pmt) {
   if (rate === 0) return pmt * n;
   return pmt * (1 - Math.pow(1 + rate, -n)) / rate;
 }
-
 export function annuityFV(rate, n, pmt) {
   if (rate === 0) return pmt * n;
   return pmt * (Math.pow(1 + rate, n) - 1) / rate;
 }
 
-// Bond math (annualized coupon; freq payments per year)
 export function bondPrice(face, couponRate, yieldRate, years, freq = 1) {
   const c = (couponRate * face) / freq;
   const m = Math.round(years * freq);
   const y = yieldRate / freq;
   let pv = 0;
-  for (let t = 1; t <= m; t++) {
-    pv += c / Math.pow(1 + y, t);
-  }
+  for (let t = 1; t <= m; t++) pv += c / Math.pow(1 + y, t);
   pv += face / Math.pow(1 + y, m);
   return pv;
 }
@@ -135,7 +125,6 @@ export function bondYield(face, couponRate, price, years, freq = 1) {
     pv += face / Math.pow(1 + y, m);
     return pv - price;
   };
-  // Newton then bisection
   let y = 0.05 / freq;
   for (let i = 0; i < 50; i++) {
     const h = 1e-6, fy = f(y);
@@ -146,19 +135,16 @@ export function bondYield(face, couponRate, price, years, freq = 1) {
     if (!Number.isFinite(y1) || y1 <= -0.999999) break;
     y = y1;
   }
-  let lo = 0.000001, hi = 1.0;
-  let flo = f(lo), fhi = f(hi);
+  let lo = 0.000001, hi = 1.0, flo = f(lo), fhi = f(hi);
   if (flo * fhi > 0) throw new Error('Yield not bracketed');
   for (let i = 0; i < 200; i++) {
-    const mid = (lo + hi) / 2;
-    const fm = f(mid);
+    const mid = (lo + hi) / 2, fm = f(mid);
     if (Math.abs(fm) < 1e-8) return mid * freq;
     if (flo * fm <= 0) { hi = mid; fhi = fm; } else { lo = mid; flo = fm; }
   }
   return ((lo + hi) / 2) * freq;
 }
 
-// Macaulay Duration (in years)
 export function macaulayDuration(face, couponRate, yieldRate, years, freq = 1) {
   const c = (couponRate * face) / freq;
   const m = Math.round(years * freq);
@@ -169,12 +155,11 @@ export function macaulayDuration(face, couponRate, yieldRate, years, freq = 1) {
     const disc = Math.pow(1 + y, t);
     const pv = cf / disc;
     pvTotal += pv;
-    tWeighted += (t / freq) * pv; // convert to years
+    tWeighted += (t / freq) * pv;
   }
   return tWeighted / pvTotal;
 }
 
-// Convexity (annualized)
 export function convexity(face, couponRate, yieldRate, years, freq = 1) {
   const c = (couponRate * face) / freq;
   const m = Math.round(years * freq);
